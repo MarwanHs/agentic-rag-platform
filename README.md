@@ -26,7 +26,7 @@ Most agentic RAG projects on GitHub demonstrate that retrieval works. This one i
 ## Progress
 
 - [x] Architecture design
-- [ ] Repo scaffolding
+- [x] Repo scaffolding
 - [ ] Core retrieval — embeddings + hybrid search (Voyage)
 - [ ] Code-navigation tooling — symbol search, call-graph lookups
 - [ ] Agentic retrieval loop — planner, iterative retrieval, critic-synthesizer

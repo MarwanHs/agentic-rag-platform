@@ -1,0 +1,24 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "FastAPI service exposing ingestion and query endpoints for agentic-rag-platform."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "shared",
+    "rag-core",
+    "agent-orchestrator",
+]
+
+[tool.uv.sources]
+shared = { workspace = true }
+rag-core = { workspace = true }
+agent-orchestrator = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api"]
