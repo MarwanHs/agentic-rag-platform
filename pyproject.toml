@@ -3,3 +3,6 @@ members = ["packages/*", "services/*"]
 
 [dependency-groups]
 dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "services"]
