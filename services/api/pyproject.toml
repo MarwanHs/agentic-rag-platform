@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "psycopg[binary]>=3.2",
+    "qdrant-client>=1.12",
     "shared",
     "rag-core",
     "agent-orchestrator",

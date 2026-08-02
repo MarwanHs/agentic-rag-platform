@@ -91,7 +91,7 @@ def test_real_file_from_repo() -> None:
     parsed = parse_source(target.read_text(), "services/api/src/api/main.py")
 
     function_names = {c.name for c in parsed.chunks if c.kind == ChunkKind.FUNCTION}
-    assert function_names == {"health"}
+    assert function_names == {"health", "lifespan"}
 
     import_names = {s.name for s in parsed.symbols if s.kind == SymbolKind.IMPORT}
     assert "FastAPI" in import_names

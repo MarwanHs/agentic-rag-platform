@@ -16,7 +16,10 @@ members = [
 ]
 
 [manifest.dependency-groups]
-dev = [{ name = "pytest", specifier = ">=8.3" }]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", specifier = ">=8.3" },
+]
 
 [[package]]
 name = "agent-orchestrator"
@@ -202,6 +205,8 @@ source = { editable = "services/api" }
 dependencies = [
     { name = "agent-orchestrator" },
     { name = "fastapi" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "qdrant-client" },
     { name = "rag-core" },
     { name = "shared" },
     { name = "uvicorn", extra = ["standard"] },
@@ -211,6 +216,8 @@ dependencies = [
 requires-dist = [
     { name = "agent-orchestrator", editable = "packages/agent_orchestrator" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "qdrant-client", specifier = ">=1.12" },
     { name = "rag-core", editable = "packages/rag_core" },
     { name = "shared", editable = "packages/shared" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },

@@ -2,7 +2,7 @@
 members = ["packages/*", "services/*"]
 
 [dependency-groups]
-dev = ["pytest>=8.3"]
+dev = ["pytest>=8.3", "httpx>=0.27"]
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "services"]
