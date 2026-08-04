@@ -1,4 +1,4 @@
-"""Request/response schemas for the API contract (decision #26)."""
+"""Request/response schemas for the API contract (decisions #26, #30)."""
 
 from __future__ import annotations
 
@@ -52,3 +52,15 @@ class QueryResponse(BaseModel):
     reason: str | None
     citations: list[Citation]
     sources_used: list[AgentSource]
+
+
+class CreateConversationResponse(BaseModel):
+    conversation_id: str
+
+
+class MessageRequest(BaseModel):
+    message: str
+
+
+class MessageResponse(QueryResponse):
+    used_existing_context: bool
