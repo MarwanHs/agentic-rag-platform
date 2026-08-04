@@ -32,8 +32,9 @@ Checkboxes track implementation, not design — several unchecked items below al
 - [x] Core retrieval — embeddings + hybrid search (Voyage) — shared tree-sitter parsing layer, `voyage-code-3` embeddings, Qdrant hybrid (dense + native BM25) search with RRF fusion and reranking
 - [x] Code-navigation tooling — symbol search, call-graph lookups — Postgres symbols/references schema, `find_definition`/`find_references` lookups
 - [ ] Agentic retrieval loop — planner, iterative retrieval, critic-synthesizer — *high-level flow designed, not yet implemented; `POST /codebases/{id}/query` returns `501 Not Implemented` rather than a fabricated `refused: true` — that field is specifically the critic's sufficiency verdict, and since no critic exists yet, returning it would be indistinguishable from a real refusal*
+- [ ] Multi-turn conversation support (LangGraph + Postgres checkpointing) — *design settled (decision #29), not yet implemented — new `POST /codebases/{id}/conversations` and `POST /conversations/{id}/messages` endpoints, planner reasons over prior turns*
 - [ ] Evaluation harness — golden dataset, LLM-as-judge grading — *approach decided, details not yet designed*
-- [ ] FastAPI service — endpoints, async ingestion, blocking query endpoint — *endpoints live, query endpoint stubbed pending orchestration: `POST /jobs`, `GET /jobs/{id}`, and `GET /codebases` are fully functional, but `POST /codebases/{id}/query` returns `501 Not Implemented` until the planner/critic-synthesizer exist*
+- [x] FastAPI service — endpoints, async ingestion, blocking query endpoint — *endpoints live, query endpoint stubbed pending orchestration: `POST /jobs`, `GET /jobs/{id}`, and `GET /codebases` are fully functional, but `POST /codebases/{id}/query` returns `501 Not Implemented` until the planner/critic-synthesizer exist*
 - [ ] Multi-agent orchestration layer
 - [ ] Async job queue for ingestion pipelines — *job row + status lifecycle implemented (`POST`/`GET /jobs`, per-step status transitions); actual clone/parse/embed/index execution and queue technology not yet built*
 - [ ] Caching layer (Redis) — *deferred to a future version, see architecture.md*
@@ -43,14 +44,4 @@ Checkboxes track implementation, not design — several unchecked items below al
 
 ## Getting Started
 
-Requires [uv](https://docs.astral.sh/uv/) and Docker.
-
-1. Install dependencies: `uv sync`
-2. Start local Postgres and Qdrant: `docker compose up -d`
-3. Copy `.env.example` to `.env` and fill in `VOYAGE_API_KEY`
-4. Start the API: `uv run --package api uvicorn api.main:app --reload --env-file .env`
-5. Check it's up: `curl http://127.0.0.1:8000/health`
-
-Only `VOYAGE_API_KEY` is exercised today, by the query endpoint's direct retriever call — the planner and critic-synthesizer, which would need `ANTHROPIC_API_KEY`, aren't implemented yet (see [Progress](#progress)).
-
-Run the test suite against the same Postgres/Qdrant from step 2 (Voyage calls are mocked, so no API key is needed): `uv run pytest`
+_Coming soon — once core scaffolding is in place._
