@@ -127,6 +127,7 @@ def _run_embedding_stage(
     for i, batch in enumerate(batches, start=1):
         _upsert_batch_with_retry(qdrant_client, codebase_id, batch, embedding_client)
         update_pipeline_state(conn, codebase_id, {"embed": {"batches_done": i, "batches_total": total}})
+        logger.info("codebase %s: embedded batch %d/%d", codebase_id, i, total)
 
 
 def _upsert_batch_with_retry(

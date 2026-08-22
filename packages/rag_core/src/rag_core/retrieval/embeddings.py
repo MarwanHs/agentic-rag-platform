@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 import voyageai
 
 DEFAULT_EMBEDDING_MODEL = "voyage-code-3"
 DEFAULT_OUTPUT_DIMENSION = 1024
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingClient(Protocol):
@@ -34,6 +37,15 @@ class VoyageEmbeddingClient:
             input_type="document",
             output_dimension=self._output_dimension,
         )
+        # Real token usage from Voyage's response -- lets local logs be
+        # cross-checked against the usage dashboard independently of its
+        # own lag, and gives a running cost signal without leaving this repo.
+        logger.info(
+            "voyage embed_documents: %d text(s), %d tokens (model=%s)",
+            len(texts),
+            result.total_tokens,
+            self._model,
+        )
         return result.embeddings
 
     def embed_query(self, text: str) -> list[float]:
@@ -43,4 +55,5 @@ class VoyageEmbeddingClient:
             input_type="query",
             output_dimension=self._output_dimension,
         )
+        logger.info("voyage embed_query: %d tokens (model=%s)", result.total_tokens, self._model)
         return result.embeddings[0]
