@@ -96,6 +96,33 @@ Each decision below states what was chosen, and — where relevant — what was 
 
 30. **Conversation endpoint schemas.** `POST /codebases/{id}/conversations` takes no body and returns `{conversation_id}` — a conversation starts empty, so nothing else is worth returning yet. `POST /conversations/{id}/messages` takes `{message}` and returns the same shape as the single-shot query response (decision #26: `answer`, `refused`, `reason`, `citations`, `sources_used`), plus `used_existing_context` (boolean) — whether the planner's context-sufficiency check bypassed fresh retrieval/code-navigation for this turn. That field was weighed against the same test applied to `sources_used`: is it read-only, after-the-fact, and does it hand the client a new steering lever over the planner? It doesn't — a user could already learn to influence planner routing through free-text phrasing in the single-shot flow, so a conversation's visible turn-by-turn trajectory doesn't introduce a new control surface, only a more visible one. The response returns only the current turn's answer, not the full conversation history — history is server-side state via the LangGraph checkpointer, and the client never needs to reconstruct or resend it.
 
+31. **Single-shot query and conversation remain two separate entry points, rather than collapsing into one LangGraph-routed endpoint or making every query an implicit one-turn conversation.** Once LangGraph was adopted for conversations (decision #29), collapsing both paths into one orchestration was considered, since the framework dependency was already paid for. Rejected because it would force every caller — including the evaluation harness (decision #16) and any scripted/programmatic usage — through conversation creation and checkpoint writes for state that would never be read again, and because routing every request through the graph "to check if it's needed" reintroduces the exact overhead decision #28 avoided. Keeping two entry points means the LangGraph-vs-plain-Python decision is made once, at the API layer, based on which endpoint was called — not re-derived at runtime.
+
+32. **Retriever iteration is a two-stage mechanism: a free, deterministic confidence gate followed by one bounded, genuinely agentic reformulation call.** After the first-pass hybrid search + rerank (decision #20), a reranker-score threshold — no Claude call — decides whether the results are good enough to hand to the critic-synthesizer as-is. Only when that check fails does the retriever spend a Claude call: it reviews what the first pass actually returned, reformulates the query, and searches again, bounded to a single retry. This resolves a real tension in the retry logic assigned to the retriever by decision #12 — an unconditional Claude-in-the-loop review on every query pays for a judgment call even when the first pass was fine, while a purely infra-level retry (backoff on transient failures) would quietly abandon the query reformulation the README's core differentiator from naive RAG depends on. Splitting the mechanism keeps the common case free and reserves the genuinely agentic step for when it's earning its keep, while the bound (one retry, not a loop) keeps it consistent with decision #9's rejection of open-ended looping at the orchestration level — the loop here is local to the retriever and hard-capped, not propagated upward.
+
+33. **The planner is a single structured-output Claude call, not a tool-use loop.** Plain Python (decision #28) invokes the planner once, receives a structured decision, and branches on it directly — the planner never calls the retriever or code-navigation tool itself mid-reasoning. A tool-use loop would let Claude decide at runtime when to invoke each agent and when to stop, reintroducing the unbounded-loop complexity decision #12 already ruled out for the orchestration layer. The planner's structured output is: `agents_needed` (which of retriever / code-navigation to invoke), a query string for the retriever, and any symbol name(s) extracted for code-navigation.
+
+34. **Code-navigation targets are extracted entirely by the planner; code-navigation itself performs a pure lookup with no reasoning of its own.** The planner's structured output (decision #33) includes the exact symbol name(s) to look up — all natural-language-to-symbol translation happens there. Code-navigation receives an exact name and returns matches (or surfaces ambiguity per decision #25); it never interprets what the user meant. This is the concrete mechanism behind decision #10's claim that code-navigation has no Claude/Voyage dependency in its own implementation.
+
+35. **A unified evidence schema is shared between retriever and code-navigation results before reaching the critic-synthesizer** — one list of items with a common envelope and source-specific fields, rather than two separately-shaped result sets the critic has to handle differently:
+
+    ```
+    EvidenceItem {
+      source: "retriever" | "code_navigation"
+      file_path: string
+      line_range: [start, end]
+      content: string                # code snippet (retriever) or symbol context (code-navigation)
+      score: float | null            # retriever only -- rerank score
+      symbol_name: string | null     # code-navigation only
+      symbol_kind: string | null     # code-navigation only -- function/class/constant/import
+      reference_kind: string | null  # code-navigation only -- definition/call/subclass
+    }
+    ```
+
+    This shape maps directly onto the citation format from decision #26 (`source`, `file_path`, `line_range`) with no translation step between evidence and citation, and gives the critic-synthesizer one consistent structure to iterate over regardless of which agent produced each item.
+
+36. **Model selection is split: a faster/cheaper model (Haiku) for the planner and retriever-reformulation calls, a stronger model (Sonnet) for the critic-synthesizer.** The planner's routing decision and the retriever's reformulation (decision #32) are both narrow, well-scoped tasks suited to a lighter model. The critic-synthesizer is the highest-stakes call — the final sufficiency judgment and answer generation the system's whole trust story rests on (decision #11) — and is worth the stronger model specifically for that call.
+
 ## Not yet resolved
 
 - Async job queue technology (arq, Celery, or other) and batch sizing/scheduling mechanics

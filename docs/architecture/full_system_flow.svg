@@ -1,0 +1,180 @@
+<svg width="100%" viewBox="0 0 1300 2450" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>agentic-rag-platform — full system flow</title>
+<desc>Ingestion pipeline, single-shot query flow, and multi-turn conversation flow, with datastores and current implementation status. Solid border means implemented, dashed border means designed but not yet built, and an amber note means the endpoint exists but returns 501. Bracketed numbers reference decisions in docs/architecture.md.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5f5e5a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+.th { font-size: 14px; font-weight: 500; fill: #2c2c2a; }
+.ts { font-size: 12px; fill: #5f5e5a; }
+.ts.amber { fill: #854F0B; }
+.arr { stroke: #5f5e5a; stroke-width: 1.5; fill: none; }
+</style>
+
+<text class="th" x="40" y="30" dominant-baseline="central">A — ingestion pipeline</text>
+
+<rect x="40" y="70" width="150" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="th" x="115" y="90" text-anchor="middle" dominant-baseline="central" fill="#2C2C2A">Client</text>
+<text class="ts" x="115" y="108" text-anchor="middle" dominant-baseline="central">submits repo URL</text>
+<line x1="190" y1="98" x2="220" y2="98" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="220" y="70" width="180" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text class="th" x="310" y="90" text-anchor="middle" dominant-baseline="central" fill="#0C447C">POST /jobs</text>
+<text class="ts" x="310" y="108" text-anchor="middle" dominant-baseline="central" fill="#185FA5">{url} → ack + job_id [#3]</text>
+<path d="M400 98 L430 98 L430 128 L460 128" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="440" y="50" width="680" height="190" rx="8" fill="none" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="780" y="66" text-anchor="middle" dominant-baseline="central">Job queue — batched execution [#7]</text>
+
+<rect x="460" y="100" width="140" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="530" y="128" text-anchor="middle" dominant-baseline="central">Clone</text>
+<line x1="600" y1="128" x2="620" y2="128" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="620" y="100" width="140" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="690" y="128" text-anchor="middle" dominant-baseline="central">Parse</text>
+<text class="ts" x="690" y="146" text-anchor="middle" dominant-baseline="central">tree-sitter</text>
+<line x1="760" y1="128" x2="780" y2="128" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="780" y="100" width="140" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="850" y="128" text-anchor="middle" dominant-baseline="central">Embed</text>
+<text class="ts" x="850" y="146" text-anchor="middle" dominant-baseline="central">voyage-code-3 [#19]</text>
+<line x1="920" y1="128" x2="940" y2="128" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="940" y="100" width="140" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="1010" y="128" text-anchor="middle" dominant-baseline="central">Index</text>
+<text class="ts" x="1010" y="146" text-anchor="middle" dominant-baseline="central">Qdrant + Postgres</text>
+
+<text class="ts" x="560" y="178" text-anchor="middle" dominant-baseline="central">repo discarded after ingestion [#15]</text>
+<text class="ts" x="780" y="200" text-anchor="middle" dominant-baseline="central">queue technology (arq/Celery/etc.) not yet decided</text>
+
+<path d="M780 240 L780 265 L850 265 L850 300" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="700" y="300" width="300" height="78" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="th" x="850" y="320" text-anchor="middle" dominant-baseline="central" fill="#2C2C2A">Job status (Postgres)</text>
+<text class="ts" x="850" y="338" text-anchor="middle" dominant-baseline="central">per-step tracking, polled [#4,#5]</text>
+<text class="ts" x="850" y="356" text-anchor="middle" dominant-baseline="central">ready only if all steps succeed [#6]</text>
+
+<path d="M850 378 L850 420 L680 420 L680 462" class="arr" marker-end="url(#arrow)"/>
+<path d="M850 378 L850 420 L1020 420 L1020 462" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="530" y="462" width="300" height="78" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text class="th" x="680" y="482" text-anchor="middle" dominant-baseline="central" fill="#085041">Qdrant</text>
+<text class="ts" x="680" y="500" text-anchor="middle" dominant-baseline="central" fill="#0F6E56">per-codebase collection [#14]</text>
+<text class="ts" x="680" y="518" text-anchor="middle" dominant-baseline="central" fill="#0F6E56">hybrid dense+BM25, RRF [#19,#20]</text>
+
+<rect x="860" y="462" width="320" height="78" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text class="th" x="1020" y="482" text-anchor="middle" dominant-baseline="central" fill="#712B13">Postgres</text>
+<text class="ts" x="1020" y="500" text-anchor="middle" dominant-baseline="central" fill="#993C1D">symbols/references index [#21,#22]</text>
+<text class="ts" x="1020" y="518" text-anchor="middle" dominant-baseline="central" fill="#993C1D">inner functions excluded [#24]</text>
+
+<text class="th" x="40" y="596" dominant-baseline="central">B — single-shot query (POST /codebases/{id}/query)</text>
+
+<rect x="590" y="630" width="300" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text class="th" x="740" y="650" text-anchor="middle" dominant-baseline="central" fill="#0C447C">POST /codebases/{id}/query</text>
+<text class="ts" x="740" y="668" text-anchor="middle" dominant-baseline="central" fill="#185FA5">codebase id + question [#8]</text>
+<line x1="740" y1="686" x2="740" y2="746" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="590" y="746" width="300" height="78" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="766" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Planner — Claude Haiku</text>
+<text class="ts" x="740" y="784" text-anchor="middle" dominant-baseline="central" fill="#534AB7">structured routing decision [#9,#33]</text>
+<text class="ts" x="740" y="802" text-anchor="middle" dominant-baseline="central" fill="#534AB7">Haiku here; critic uses Sonnet [#36]</text>
+
+<path d="M740 824 L740 866 L490 866 L490 908" class="arr" marker-end="url(#arrow)"/>
+<path d="M740 824 L740 866 L990 866 L990 908" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="320" y="908" width="340" height="78" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="490" y="928" text-anchor="middle" dominant-baseline="central" fill="#085041">Retriever agent — Haiku + Voyage</text>
+<text class="ts" x="490" y="946" text-anchor="middle" dominant-baseline="central" fill="#0F6E56">hybrid dense+BM25, RRF, rerank [#20]</text>
+<text class="ts" x="490" y="964" text-anchor="middle" dominant-baseline="central" fill="#0F6E56">score-gated reformulation, ≤1 retry [#32]</text>
+
+<rect x="820" y="908" width="340" height="78" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="990" y="928" text-anchor="middle" dominant-baseline="central" fill="#712B13">Code-navigation</text>
+<text class="ts" x="990" y="946" text-anchor="middle" dominant-baseline="central" fill="#993C1D">deterministic lookup, no Claude [#10,#34]</text>
+<text class="ts" x="990" y="964" text-anchor="middle" dominant-baseline="central" fill="#993C1D">symbol from planner; ambiguity kept [#25]</text>
+
+<path d="M490 986 L490 1028 L740 1028 L740 1070" class="arr" marker-end="url(#arrow)"/>
+<path d="M990 986 L990 1028 L740 1028 L740 1070" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="570" y="1070" width="340" height="56" rx="8" fill="#FBEAF0" stroke="#993556" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1090" text-anchor="middle" dominant-baseline="central" fill="#72243E">Unified evidence</text>
+<text class="ts" x="740" y="1108" text-anchor="middle" dominant-baseline="central" fill="#993556">shared schema: retriever + code-nav [#35]</text>
+<line x1="740" y1="1126" x2="740" y2="1186" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="590" y="1186" width="300" height="78" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1206" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Critic-synthesizer — Sonnet</text>
+<text class="ts" x="740" y="1224" text-anchor="middle" dominant-baseline="central" fill="#534AB7">checks evidence; answers or refuses</text>
+<text class="ts" x="740" y="1242" text-anchor="middle" dominant-baseline="central" fill="#534AB7">one call: judge + generate [#11,#36]</text>
+<line x1="740" y1="1264" x2="740" y2="1324" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="570" y="1324" width="340" height="78" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1344" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Response</text>
+<text class="ts" x="740" y="1362" text-anchor="middle" dominant-baseline="central" fill="#185FA5">answer/refused/citations/sources [#26]</text>
+<text class="ts amber" x="740" y="1380" text-anchor="middle" dominant-baseline="central">currently: 501 not implemented</text>
+
+<text class="th" x="40" y="1458" dominant-baseline="central">C — conversation (multi-turn)</text>
+
+<rect x="590" y="1488" width="300" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text class="th" x="740" y="1508" text-anchor="middle" dominant-baseline="central" fill="#0C447C">POST .../conversations</text>
+<text class="ts" x="740" y="1526" text-anchor="middle" dominant-baseline="central" fill="#185FA5">creates conversation → {id} [#30]</text>
+<line x1="740" y1="1544" x2="740" y2="1604" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="570" y="1604" width="340" height="78" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1624" text-anchor="middle" dominant-baseline="central" fill="#0C447C">POST /conversations/{id}/messages</text>
+<text class="ts" x="740" y="1642" text-anchor="middle" dominant-baseline="central" fill="#185FA5">{message} → same response shape [#30]</text>
+<text class="ts amber" x="740" y="1660" text-anchor="middle" dominant-baseline="central">currently: 501 not implemented</text>
+<line x1="740" y1="1682" x2="740" y2="1742" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="560" y="1742" width="360" height="78" rx="8" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1762" text-anchor="middle" dominant-baseline="central" fill="#27500A">Planner — context check (LangGraph)</text>
+<text class="ts" x="740" y="1780" text-anchor="middle" dominant-baseline="central" fill="#3B6D11">sufficient → skip straight to critic [#29]</text>
+<text class="ts" x="740" y="1798" text-anchor="middle" dominant-baseline="central" fill="#3B6D11">insufficient → reuse retriever/code-nav [#12]</text>
+<line x1="740" y1="1820" x2="740" y2="1880" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="570" y="1880" width="340" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="1900" text-anchor="middle" dominant-baseline="central" fill="#3C3489">Critic-synthesizer (same as B)</text>
+<text class="ts" x="740" y="1918" text-anchor="middle" dominant-baseline="central" fill="#534AB7">runs every turn regardless of context [#11]</text>
+<line x1="740" y1="1936" x2="740" y2="1996" class="arr" marker-end="url(#arrow)"/>
+
+<rect x="570" y="1996" width="340" height="78" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="th" x="740" y="2016" text-anchor="middle" dominant-baseline="central" fill="#0C447C">Response</text>
+<text class="ts" x="740" y="2034" text-anchor="middle" dominant-baseline="central" fill="#185FA5">+ used_existing_context [#30]</text>
+<text class="ts amber" x="740" y="2052" text-anchor="middle" dominant-baseline="central">currently: 501 not implemented</text>
+
+<text class="th" x="40" y="2130" dominant-baseline="central">Datastores</text>
+
+<rect x="340" y="2160" width="340" height="78" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="th" x="510" y="2180" text-anchor="middle" dominant-baseline="central" fill="#2C2C2A">Postgres</text>
+<text class="ts" x="510" y="2198" text-anchor="middle" dominant-baseline="central">job status, symbols/references [#21,#23]</text>
+<text class="ts" x="510" y="2216" text-anchor="middle" dominant-baseline="central">conversation checkpoints [#29]</text>
+
+<rect x="760" y="2160" width="340" height="78" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="th" x="930" y="2180" text-anchor="middle" dominant-baseline="central" fill="#2C2C2A">Qdrant</text>
+<text class="ts" x="930" y="2198" text-anchor="middle" dominant-baseline="central">per-codebase vector collections [#14]</text>
+<text class="ts" x="930" y="2216" text-anchor="middle" dominant-baseline="central">dense+BM25 hybrid, RRF fusion [#19,#20]</text>
+
+<text class="th" x="40" y="2294" dominant-baseline="central">Legend</text>
+
+<rect x="40" y="2320" width="28" height="14" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="ts" x="76" y="2327" dominant-baseline="central">implemented</text>
+<rect x="250" y="2320" width="28" height="14" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="ts" x="286" y="2327" dominant-baseline="central">designed, not built</text>
+<rect x="500" y="2320" width="28" height="14" rx="2" fill="#F1EFE8" stroke="#854F0B" stroke-width="0.5" stroke-dasharray="5 4"/>
+<text class="ts amber" x="536" y="2327" dominant-baseline="central">endpoint live, returns 501</text>
+
+<rect x="40" y="2364" width="28" height="14" rx="2" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text class="ts" x="76" y="2371" dominant-baseline="central">blue = API request / response</text>
+<rect x="280" y="2364" width="28" height="14" rx="2" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text class="ts" x="316" y="2371" dominant-baseline="central">purple = orchestration</text>
+<rect x="650" y="2364" width="28" height="14" rx="2" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text class="ts" x="686" y="2371" dominant-baseline="central">teal = retriever</text>
+<rect x="900" y="2364" width="28" height="14" rx="2" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text class="ts" x="936" y="2371" dominant-baseline="central">coral = code-navigation</text>
+
+<rect x="40" y="2404" width="28" height="14" rx="2" fill="#FBEAF0" stroke="#993556" stroke-width="0.5"/>
+<text class="ts" x="76" y="2411" dominant-baseline="central">pink = evidence merge</text>
+<rect x="280" y="2404" width="28" height="14" rx="2" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
+<text class="ts" x="316" y="2411" dominant-baseline="central">green = conversation (LangGraph)</text>
+<rect x="620" y="2404" width="28" height="14" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text class="ts" x="656" y="2411" dominant-baseline="central">gray = client / datastore</text>
+</svg>
