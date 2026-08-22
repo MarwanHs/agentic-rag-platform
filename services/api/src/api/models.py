@@ -22,7 +22,7 @@ class CreateJobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: JobStatus
-    current_batch: str | None = None
+    pipeline_state: dict = {}
     failure_reason: str | None = None
 
 

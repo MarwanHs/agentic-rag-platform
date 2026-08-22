@@ -16,7 +16,7 @@ def test_create_and_get_job(client, pg_conn) -> None:
         body = resp.json()
         assert body["job_id"] == job_id
         assert body["status"] == "queued"
-        assert body["current_batch"] is None
+        assert body["pipeline_state"] == {}
         assert body["failure_reason"] is None
     finally:
         with pg_conn.cursor() as cur:

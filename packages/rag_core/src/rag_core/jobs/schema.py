@@ -16,13 +16,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL CHECK (
         status IN ('queued', 'cloning', 'parsing', 'embedding', 'indexing', 'ready', 'failed')
     ),
-    current_batch TEXT,
+    pipeline_state JSONB NOT NULL DEFAULT '{}'::jsonb,
     failure_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs (status);
+
+-- Migration for tables created before decision #39: current_batch TEXT was
+-- an unused stub, replaced by pipeline_state JSONB (per-worker execution
+-- state -- batch progress, attempt counts -- not a cross-job query target).
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pipeline_state JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE jobs DROP COLUMN IF EXISTS current_batch;
 """
 
 

@@ -26,6 +26,6 @@ def get_job_status(job_id: str, conn: psycopg.Connection = Depends(get_pg_conn))
     return JobStatusResponse(
         job_id=job.id,
         status=job.status,
-        current_batch=job.current_batch,
+        pipeline_state=job.pipeline_state,
         failure_reason=job.failure_reason,
     )
