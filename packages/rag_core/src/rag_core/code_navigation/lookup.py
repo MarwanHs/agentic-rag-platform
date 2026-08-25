@@ -16,6 +16,7 @@ class SymbolLocation:
     start_line: int
     end_line: int
     docstring: str | None
+    source_text: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,7 @@ class ReferenceLocation:
     start_line: int
     end_line: int
     enclosing_qualified_name: str | None
+    source_text: str | None
 
 
 def find_definition(conn: psycopg.Connection, codebase_id: str, name: str) -> list[SymbolLocation]:
@@ -33,7 +35,7 @@ def find_definition(conn: psycopg.Connection, codebase_id: str, name: str) -> li
         if "." in name:
             cur.execute(
                 """
-                SELECT kind, name, qualified_name, file_path, start_line, end_line, docstring
+                SELECT kind, name, qualified_name, file_path, start_line, end_line, docstring, source_text
                 FROM symbols
                 WHERE codebase_id = %s AND qualified_name LIKE %s
                 ORDER BY qualified_name
@@ -43,7 +45,7 @@ def find_definition(conn: psycopg.Connection, codebase_id: str, name: str) -> li
         else:
             cur.execute(
                 """
-                SELECT kind, name, qualified_name, file_path, start_line, end_line, docstring
+                SELECT kind, name, qualified_name, file_path, start_line, end_line, docstring, source_text
                 FROM symbols
                 WHERE codebase_id = %s AND name = %s
                 ORDER BY qualified_name
@@ -57,7 +59,7 @@ def find_references(conn: psycopg.Connection, codebase_id: str, name: str) -> li
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT kind, name, file_path, start_line, end_line, enclosing_qualified_name
+            SELECT kind, name, file_path, start_line, end_line, enclosing_qualified_name, source_text
             FROM symbol_references
             WHERE codebase_id = %s AND name = %s
             ORDER BY file_path, start_line

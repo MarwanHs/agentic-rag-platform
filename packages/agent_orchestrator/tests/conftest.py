@@ -1,11 +1,35 @@
 from __future__ import annotations
 
+import os
+import socket
 from collections.abc import Callable
+from urllib.parse import urlparse
 
+import psycopg
 import pytest
 
 from agent_orchestrator.planner import PlannerDecision
 from shared.evidence import EvidenceItem
+
+DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://rag:rag@localhost:5432/rag")
+
+
+def _is_reachable(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+@pytest.fixture(scope="session")
+def pg_conn():
+    parsed = urlparse(DATABASE_URL)
+    if not _is_reachable(parsed.hostname or "localhost", parsed.port or 5432):
+        pytest.skip(f"Postgres not reachable at {DATABASE_URL}; run `docker compose up -d postgres`.")
+    conn = psycopg.connect(DATABASE_URL)
+    yield conn
+    conn.close()
 
 
 class FakePlannerClient:

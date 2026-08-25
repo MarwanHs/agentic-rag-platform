@@ -44,6 +44,7 @@ class Symbol:
     end_line: int
     start_byte: int
     end_byte: int
+    source_text: str
     docstring: str | None = None
     source_module: str | None = None
 
@@ -57,6 +58,7 @@ class Reference:
     end_line: int
     start_byte: int
     end_byte: int
+    source_text: str
     enclosing_qualified_name: str | None = None
 
 

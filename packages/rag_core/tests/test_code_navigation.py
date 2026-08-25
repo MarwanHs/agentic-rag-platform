@@ -36,10 +36,14 @@ def test_find_definition_and_references(pg_conn) -> None:
         assert len(definitions) == 1
         assert definitions[0].kind == "function"
         assert definitions[0].qualified_name == "demo.py::add"
+        assert definitions[0].source_text == (
+            'def add(a, b):\n    """Add two numbers."""\n    return a + b'
+        )
 
         references = find_references(pg_conn, codebase_id, "add")
         assert len(references) == 1
         assert references[0].enclosing_qualified_name == "demo.py::total"
+        assert references[0].source_text == "add(result, v)"
 
         qualified_definitions = find_definition(pg_conn, codebase_id, "total.add")
         assert qualified_definitions == []  # "add" isn't nested under "total"; sanity-check dotted lookup path

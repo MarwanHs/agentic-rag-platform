@@ -42,20 +42,39 @@ def test_sample_module_symbols() -> None:
 
     assert by_qname["sample_module.py::double"].kind == SymbolKind.FUNCTION
 
+    double_symbol = by_qname["sample_module.py::double"]
+    assert double_symbol.source_text == (
+        'def double(value: int) -> int:\n'
+        '    """Return twice the given value."""\n'
+        '    inner_offset = 1\n\n'
+        '    def helper(x):\n'
+        '        return x + inner_offset\n\n'
+        '    return helper(value) * 2'
+    )
+    # symbol span excludes the leading comment (unlike the chunk's text, which includes it)
+    assert "# Computes the double" not in double_symbol.source_text
+
     greeter = by_qname["sample_module.py::Greeter"]
     assert greeter.kind == SymbolKind.CLASS
     assert greeter.docstring == "Greets people by name."
+    assert greeter.source_text.startswith("class Greeter:")
+    assert greeter.source_text.endswith('return f"{self.default_greeting}, {self.name}! ({n})"')
 
     assert by_qname["sample_module.py::Greeter.__init__"].kind == SymbolKind.METHOD
     assert by_qname["sample_module.py::Greeter.__init__"].docstring == "Store the name to greet."
     assert by_qname["sample_module.py::LoudGreeter.greet"].kind == SymbolKind.METHOD
     assert by_qname["sample_module.py::MAX_RETRIES"].kind == SymbolKind.CONSTANT
+    assert by_qname["sample_module.py::MAX_RETRIES"].source_text == "MAX_RETRIES = 3"
 
     imports = {s.name: s for s in parsed.symbols if s.kind == SymbolKind.IMPORT}
     assert imports["os"].source_module == "os"
+    assert imports["os"].source_text == "os"
     assert imports["j"].source_module == "json"
+    assert imports["j"].source_text == "json as j"
     assert imports["OrderedDict"].source_module == "collections"
+    assert imports["OrderedDict"].source_text == "OrderedDict"
     assert imports["Opt"].source_module == "typing"
+    assert imports["Opt"].source_text == "Optional as Opt"
 
     # nested function is folded into its parent, not indexed as its own symbol
     assert "helper" not in {s.name for s in parsed.symbols}
@@ -69,9 +88,10 @@ def test_sample_module_references() -> None:
     assert any(
         r.name == "helper" and r.enclosing_qualified_name == "sample_module.py::double" for r in calls
     )
-    assert any(
-        r.name == "double" and r.enclosing_qualified_name == "sample_module.py::Greeter.greet" for r in calls
+    double_call = next(
+        r for r in calls if r.name == "double" and r.enclosing_qualified_name == "sample_module.py::Greeter.greet"
     )
+    assert double_call.source_text == "double(1)"
     assert any(
         r.name == "_format" and r.enclosing_qualified_name == "sample_module.py::Greeter.greet" for r in calls
     )
@@ -83,6 +103,7 @@ def test_sample_module_references() -> None:
     assert len(subclasses) == 1
     assert subclasses[0].name == "Greeter"
     assert subclasses[0].enclosing_qualified_name == "sample_module.py::LoudGreeter"
+    assert subclasses[0].source_text == "Greeter"
 
 
 def test_real_file_from_repo() -> None:

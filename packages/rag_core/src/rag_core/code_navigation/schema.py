@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS symbols (
     end_line INTEGER NOT NULL,
     start_byte INTEGER NOT NULL,
     end_byte INTEGER NOT NULL,
+    source_text TEXT,
     docstring TEXT,
     source_module TEXT,
     UNIQUE (codebase_id, file_path, qualified_name)
@@ -38,12 +39,20 @@ CREATE TABLE IF NOT EXISTS symbol_references (
     end_line INTEGER NOT NULL,
     start_byte INTEGER NOT NULL,
     end_byte INTEGER NOT NULL,
+    source_text TEXT,
     enclosing_qualified_name TEXT,
     symbol_id BIGINT REFERENCES symbols (id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS symbol_references_codebase_name_idx ON symbol_references (codebase_id, name);
 CREATE INDEX IF NOT EXISTS symbol_references_codebase_symbol_idx ON symbol_references (codebase_id, symbol_id);
+
+-- Migration for tables created before decision #43: source_text didn't
+-- exist, so code-navigation had nothing to put in EvidenceItem.content
+-- (decision #35). Already-ingested codebases get NULL here until
+-- re-ingested (decision #43) -- not backfilled by this migration.
+ALTER TABLE symbols ADD COLUMN IF NOT EXISTS source_text TEXT;
+ALTER TABLE symbol_references ADD COLUMN IF NOT EXISTS source_text TEXT;
 """
 
 

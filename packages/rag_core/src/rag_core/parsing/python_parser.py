@@ -113,6 +113,7 @@ class _Extractor:
                 end_line=def_node.end_point[0] + 1,
                 start_byte=def_node.start_byte,
                 end_byte=def_node.end_byte,
+                source_text=self._text(def_node),
                 docstring=docstring,
             )
         )
@@ -137,6 +138,7 @@ class _Extractor:
                 end_line=def_node.end_point[0] + 1,
                 start_byte=def_node.start_byte,
                 end_byte=def_node.end_byte,
+                source_text=self._text(def_node),
                 docstring=self._docstring_from_container(def_node.child_by_field_name("body")),
             )
         )
@@ -156,6 +158,7 @@ class _Extractor:
                         end_line=arg.end_point[0] + 1,
                         start_byte=arg.start_byte,
                         end_byte=arg.end_byte,
+                        source_text=self._text(arg),
                         enclosing_qualified_name=qualified_name,
                     )
                 )
@@ -205,6 +208,7 @@ class _Extractor:
                 end_line=node.end_point[0] + 1,
                 start_byte=node.start_byte,
                 end_byte=node.end_byte,
+                source_text=self._text(node),
                 source_module=source_module,
             )
         )
@@ -230,6 +234,7 @@ class _Extractor:
                 end_line=node.end_point[0] + 1,
                 start_byte=node.start_byte,
                 end_byte=node.end_byte,
+                source_text=self._text(node),
             )
         )
 
@@ -249,6 +254,7 @@ class _Extractor:
                             end_line=child.end_point[0] + 1,
                             start_byte=child.start_byte,
                             end_byte=child.end_byte,
+                            source_text=self._text(child),
                             enclosing_qualified_name=enclosing,
                         )
                     )

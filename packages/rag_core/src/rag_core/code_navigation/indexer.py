@@ -38,14 +38,15 @@ def upsert_symbols(conn: psycopg.Connection, codebase_id: str, symbols: list[Sym
                 """
                 INSERT INTO symbols (
                     codebase_id, file_path, kind, name, qualified_name,
-                    start_line, end_line, start_byte, end_byte, docstring, source_module
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    start_line, end_line, start_byte, end_byte, source_text, docstring, source_module
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (codebase_id, file_path, qualified_name) DO UPDATE SET
                     kind = EXCLUDED.kind,
                     start_line = EXCLUDED.start_line,
                     end_line = EXCLUDED.end_line,
                     start_byte = EXCLUDED.start_byte,
                     end_byte = EXCLUDED.end_byte,
+                    source_text = EXCLUDED.source_text,
                     docstring = EXCLUDED.docstring,
                     source_module = EXCLUDED.source_module
                 RETURNING id
@@ -60,6 +61,7 @@ def upsert_symbols(conn: psycopg.Connection, codebase_id: str, symbols: list[Sym
                     symbol.end_line,
                     symbol.start_byte,
                     symbol.end_byte,
+                    symbol.source_text,
                     symbol.docstring,
                     symbol.source_module,
                 ),
@@ -78,8 +80,8 @@ def upsert_references(conn: psycopg.Connection, codebase_id: str, references: li
                 """
                 INSERT INTO symbol_references (
                     codebase_id, file_path, kind, name, start_line, end_line,
-                    start_byte, end_byte, enclosing_qualified_name, symbol_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    start_byte, end_byte, source_text, enclosing_qualified_name, symbol_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     codebase_id,
@@ -90,6 +92,7 @@ def upsert_references(conn: psycopg.Connection, codebase_id: str, references: li
                     reference.end_line,
                     reference.start_byte,
                     reference.end_byte,
+                    reference.source_text,
                     reference.enclosing_qualified_name,
                     symbol_id,
                 ),
