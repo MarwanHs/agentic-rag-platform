@@ -79,6 +79,10 @@ class ReformulationDecision:
     reformulated_query: str
 
 
+class ReformulationValidationError(RuntimeError):
+    """Raised when the reformulation call's structured output is malformed."""
+
+
 class ReformulationClient(Protocol):
     def reformulate(self, first_pass_query: str, first_pass_results: list[SearchResult]) -> ReformulationDecision: ...
 
@@ -136,7 +140,28 @@ class AnthropicReformulationClient:
         tool_use = next(block for block in response.content if block.type == "tool_use")
         tool_input: dict[str, Any] = tool_use.input
 
-        logger.info("retriever reformulation decision: %s", tool_input)
+        logger.info(
+            "retriever reformulation decision (stop_reason=%s): %s", response.stop_reason, tool_input
+        )
+
+        # Same robustness layer as the planner/critic (missing field or
+        # max_tokens truncation on a forced-tool-use response) -- not yet
+        # observed live for this call, but the underlying vulnerability is
+        # identical, so it's guarded proactively rather than reactively.
+        if response.stop_reason == "max_tokens":
+            raise ReformulationValidationError(
+                "Reformulation response hit max_tokens before its tool call "
+                "finished -- tool_input is a truncated/malformed partial parse, "
+                f"not a normal validation failure (full tool_input: {tool_input!r})"
+            )
+
+        required_fields = ("reasoning", "reformulated_query")
+        missing_fields = [field for field in required_fields if field not in tool_input]
+        if missing_fields:
+            raise ReformulationValidationError(
+                f"Reformulation tool_use response is missing required field(s) "
+                f"{missing_fields} (full tool_input: {tool_input!r})"
+            )
 
         return ReformulationDecision(
             reasoning=tool_input["reasoning"],

@@ -1,16 +1,18 @@
 """Query-routing planner (decisions #9, #33, #34, #36, #41, #42).
 
-A single forced-tool-use Claude call decides which evidence-gathering
-agents (retriever, code-navigation) are needed for a question, given any
-prior evidence already accumulated in the conversation. The planner never
-calls those agents itself and never answers the question -- routing only.
+A forced-tool-use Claude call decides which evidence-gathering agents
+(retriever, code-navigation) are needed for a question, given any prior
+evidence already accumulated in the conversation. The planner never calls
+those agents itself and never answers the question -- routing only. On a
+malformed response it retries the same routing call exactly once, feeding
+back what went wrong, before giving up.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import anthropic
 
@@ -179,32 +181,112 @@ def _validate_decision(decision: PlannerDecision) -> None:
         )
 
 
+def _attempt_plan(
+    client: anthropic.Anthropic,
+    model: str,
+    messages: list[dict[str, Any]],
+) -> tuple[Any, PlannerDecision | None, PlannerValidationError | None]:
+    """One forced-tool-use call plus validation. Returns (response, decision,
+    error) -- exactly one of decision/error is non-None -- so the caller can
+    retry once on failure using the raw `response` to build retry feedback.
+
+    Robustness layer: a forced-tool-use response can still omit a required
+    field or get cut off by max_tokens -- observed live (a missing
+    `existing_context_sufficient`, reproduced even against the original,
+    unmodified prompt), so this is checked defensively rather than trusting
+    the schema's `required` list.
+    """
+    response = client.messages.create(
+        model=model,
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        tools=[ROUTE_QUERY_TOOL],
+        tool_choice={"type": "tool", "name": "route_query"},
+        messages=messages,
+    )
+
+    tool_use = next(block for block in response.content if block.type == "tool_use")
+    tool_input: dict[str, Any] = tool_use.input
+
+    logger.info(
+        "planner routing decision (stop_reason=%s): %s", response.stop_reason, tool_input
+    )
+
+    if response.stop_reason == "max_tokens":
+        return response, None, PlannerValidationError(
+            "Planner response hit max_tokens before its tool call finished -- "
+            "tool_input is a truncated/malformed partial parse, not a normal "
+            f"validation failure (full tool_input: {tool_input!r})"
+        )
+
+    required_fields = (
+        "reasoning",
+        "agents_needed",
+        "retriever_query",
+        "code_navigation_symbols",
+        "existing_context_sufficient",
+    )
+    missing_fields = [field for field in required_fields if field not in tool_input]
+    if missing_fields:
+        return response, None, PlannerValidationError(
+            f"Planner tool_use response is missing required field(s) {missing_fields} "
+            f"(full tool_input: {tool_input!r})"
+        )
+
+    decision = PlannerDecision(
+        reasoning=tool_input["reasoning"],
+        agents_needed=tool_input["agents_needed"],
+        retriever_query=tool_input["retriever_query"],
+        code_navigation_symbols=tool_input["code_navigation_symbols"],
+        existing_context_sufficient=tool_input["existing_context_sufficient"],
+    )
+    try:
+        _validate_decision(decision)
+    except PlannerValidationError as error:
+        return response, None, error
+
+    return response, decision, None
+
+
 class AnthropicPlannerClient:
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_PLANNER_MODEL) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
         self._model = model
 
     def plan(self, question: str, prior_evidence: list[EvidenceItem]) -> PlannerDecision:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            tools=[ROUTE_QUERY_TOOL],
-            tool_choice={"type": "tool", "name": "route_query"},
-            messages=[{"role": "user", "content": _build_user_message(question, prior_evidence)}],
-        )
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": _build_user_message(question, prior_evidence)}
+        ]
 
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        tool_input = tool_use.input
+        response, decision, error = _attempt_plan(self._client, self._model, messages)
+        if decision is not None:
+            return decision
 
-        logger.info("planner routing decision: %s", tool_input)
-
-        decision = PlannerDecision(
-            reasoning=tool_input["reasoning"],
-            agents_needed=tool_input["agents_needed"],
-            retriever_query=tool_input["retriever_query"],
-            code_navigation_symbols=tool_input["code_navigation_symbols"],
-            existing_context_sufficient=tool_input["existing_context_sufficient"],
-        )
-        _validate_decision(decision)
-        return decision
+        # Exactly one retry, mirroring the critic's retry: feed back the
+        # model's own malformed attempt via a proper tool_result block (the
+        # API requires this immediately after an assistant tool_use turn)
+        # plus the specific validation error, before giving up.
+        logger.warning("planner validation failed on first attempt, retrying once: %s", error)
+        tool_use_block = next(block for block in response.content if block.type == "tool_use")
+        retry_messages = messages + [
+            {"role": "assistant", "content": response.content},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_block.id,
+                        "is_error": True,
+                        "content": (
+                            f"That tool call was invalid: {error} Call route_query "
+                            "again, making sure every required field is populated "
+                            "correctly this time."
+                        ),
+                    }
+                ],
+            },
+        ]
+        _, decision, error = _attempt_plan(self._client, self._model, retry_messages)
+        if decision is not None:
+            return decision
+        raise error

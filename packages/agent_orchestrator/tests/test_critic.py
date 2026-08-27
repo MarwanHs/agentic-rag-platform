@@ -18,31 +18,49 @@ from shared.evidence import EvidenceItem
 class FakeToolUseBlock:
     input: dict[str, Any]
     type: str = "tool_use"
+    id: str = "toolu_fake"
 
 
 @dataclass
 class FakeMessage:
     content: list[FakeToolUseBlock] = field(default_factory=list)
+    stop_reason: str = "tool_use"
 
 
 class FakeMessages:
-    def __init__(self, response: FakeMessage) -> None:
-        self._response = response
-        self.create_kwargs: dict[str, Any] | None = None
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        self._responses = responses
+        self.create_kwargs_history: list[dict[str, Any]] = []
+
+    @property
+    def create_kwargs(self) -> dict[str, Any] | None:
+        # Most tests only trigger one call; keep this the *last* call's
+        # kwargs so single-call assertions read naturally even though a
+        # validation failure can now trigger a second (retry) call.
+        return self.create_kwargs_history[-1] if self.create_kwargs_history else None
 
     def create(self, **kwargs: Any) -> FakeMessage:
-        self.create_kwargs = kwargs
-        return self._response
+        self.create_kwargs_history.append(kwargs)
+        index = min(len(self.create_kwargs_history) - 1, len(self._responses) - 1)
+        return self._responses[index]
 
 
 class FakeAnthropicClient:
-    def __init__(self, response: FakeMessage) -> None:
-        self.messages = FakeMessages(response)
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        self.messages = FakeMessages(responses)
 
 
-def _install_fake_anthropic(monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any]) -> FakeAnthropicClient:
-    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)])
-    fake_client = FakeAnthropicClient(response)
+def _install_fake_anthropic(
+    monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any], stop_reason: str = "tool_use"
+) -> FakeAnthropicClient:
+    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)], stop_reason=stop_reason)
+    return _install_fake_anthropic_sequence(monkeypatch, [response])
+
+
+def _install_fake_anthropic_sequence(
+    monkeypatch: pytest.MonkeyPatch, responses: list[FakeMessage]
+) -> FakeAnthropicClient:
+    fake_client = FakeAnthropicClient(responses)
 
     class FakeAnthropicModule:
         @staticmethod
@@ -115,6 +133,106 @@ def test_synthesize_parses_consistent_decisions(
         reason=tool_input["reason"],
         cited_evidence_indices=tool_input["cited_evidence_indices"],
     )
+
+
+@pytest.mark.parametrize("missing_field", ["answer", "refused", "reason", "cited_evidence_indices"])
+def test_synthesize_raises_validation_error_on_missing_field(
+    monkeypatch: pytest.MonkeyPatch, missing_field: str
+) -> None:
+    # Regression test: a live query produced a tool_use response missing a
+    # required field (observed for cited_evidence_indices and, on a separate
+    # occasion, for the planner's equivalent field) -- reproduced even
+    # against the unmodified original prompt, so this is a model-level
+    # reliability quirk, not something fixable via prompt wording. Must
+    # raise CriticValidationError, not a raw KeyError.
+    incomplete_input = {k: v for k, v in REFUSED.items() if k != missing_field}
+    _install_fake_anthropic(monkeypatch, incomplete_input)
+    client = AnthropicCriticClient(api_key="unused")
+
+    with pytest.raises(CriticValidationError, match=missing_field):
+        client.synthesize("some question", [RETRIEVER_EVIDENCE])
+
+
+def test_synthesize_raises_validation_error_on_max_tokens_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    truncated_input = {
+        "answer": "partial answer text cut off mid-generation",
+        "refused": False,
+        "reason": None,
+        # cited_evidence_indices genuinely absent, mirroring observed truncation
+    }
+    _install_fake_anthropic(monkeypatch, truncated_input, stop_reason="max_tokens")
+    client = AnthropicCriticClient(api_key="unused")
+
+    with pytest.raises(CriticValidationError, match="max_tokens"):
+        client.synthesize("some question", [RETRIEVER_EVIDENCE])
+
+
+def test_synthesize_retries_once_after_validation_failure_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input={"answer": "partial", "refused": False, "reason": None}
+                # cited_evidence_indices missing
+            )
+        ]
+    )
+    fake_client = _install_fake_anthropic_sequence(
+        monkeypatch, [malformed, FakeMessage(content=[FakeToolUseBlock(input=ANSWERED)])]
+    )
+    client = AnthropicCriticClient(api_key="unused")
+
+    decision = client.synthesize("some question", [RETRIEVER_EVIDENCE])
+
+    assert decision == CriticDecision(
+        answer=ANSWERED["answer"],
+        refused=ANSWERED["refused"],
+        reason=ANSWERED["reason"],
+        cited_evidence_indices=ANSWERED["cited_evidence_indices"],
+    )
+    assert len(fake_client.messages.create_kwargs_history) == 2
+
+    retry_messages = fake_client.messages.create_kwargs_history[1]["messages"]
+    assert retry_messages[0]["role"] == "user"
+    assert retry_messages[1]["role"] == "assistant"
+    assert retry_messages[1]["content"] == malformed.content
+
+    # Retry feedback must be a proper tool_result block referencing the
+    # original tool_use's id, immediately after the assistant's tool_use turn
+    # -- a plain text user turn there is rejected outright by the Anthropic
+    # API (400: "tool_use ids were found without tool_result blocks").
+    retry_feedback_turn = retry_messages[2]
+    assert retry_feedback_turn["role"] == "user"
+    tool_result = retry_feedback_turn["content"][0]
+    assert tool_result["type"] == "tool_result"
+    assert tool_result["tool_use_id"] == malformed.content[0].id
+    assert tool_result["is_error"] is True
+    assert "invalid" in tool_result["content"]
+
+
+def test_synthesize_raises_after_retry_also_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    first_malformed = {"answer": "a", "refused": False, "reason": None}  # missing cited_evidence_indices
+    second_malformed = {"refused": False, "reason": None, "cited_evidence_indices": [0]}  # missing answer
+    fake_client = _install_fake_anthropic_sequence(
+        monkeypatch,
+        [
+            FakeMessage(content=[FakeToolUseBlock(input=first_malformed)]),
+            FakeMessage(content=[FakeToolUseBlock(input=second_malformed)]),
+        ],
+    )
+    client = AnthropicCriticClient(api_key="unused")
+
+    # Matches the *missing field name* specifically -- the first attempt's
+    # error text also mentions "answer" incidentally (it's a present field in
+    # that tool_input), so this proves the retry's error propagated, not the
+    # first attempt's.
+    with pytest.raises(CriticValidationError, match=r"missing required field\(s\) \['answer'\]"):
+        client.synthesize("some question", [RETRIEVER_EVIDENCE])
+
+    assert len(fake_client.messages.create_kwargs_history) == 2
 
 
 def test_synthesize_refuses_on_empty_evidence(monkeypatch: pytest.MonkeyPatch) -> None:

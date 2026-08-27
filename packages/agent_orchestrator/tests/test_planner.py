@@ -18,31 +18,46 @@ from shared.evidence import EvidenceItem
 class FakeToolUseBlock:
     input: dict[str, Any]
     type: str = "tool_use"
+    id: str = "toolu_fake"
 
 
 @dataclass
 class FakeMessage:
     content: list[FakeToolUseBlock] = field(default_factory=list)
+    stop_reason: str = "tool_use"
 
 
 class FakeMessages:
-    def __init__(self, response: FakeMessage) -> None:
-        self._response = response
-        self.create_kwargs: dict[str, Any] | None = None
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        self._responses = responses
+        self.create_kwargs_history: list[dict[str, Any]] = []
+
+    @property
+    def create_kwargs(self) -> dict[str, Any] | None:
+        return self.create_kwargs_history[-1] if self.create_kwargs_history else None
 
     def create(self, **kwargs: Any) -> FakeMessage:
-        self.create_kwargs = kwargs
-        return self._response
+        self.create_kwargs_history.append(kwargs)
+        index = min(len(self.create_kwargs_history) - 1, len(self._responses) - 1)
+        return self._responses[index]
 
 
 class FakeAnthropicClient:
-    def __init__(self, response: FakeMessage) -> None:
-        self.messages = FakeMessages(response)
+    def __init__(self, responses: list[FakeMessage]) -> None:
+        self.messages = FakeMessages(responses)
 
 
-def _install_fake_anthropic(monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any]) -> FakeAnthropicClient:
-    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)])
-    fake_client = FakeAnthropicClient(response)
+def _install_fake_anthropic(
+    monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any], stop_reason: str = "tool_use"
+) -> FakeAnthropicClient:
+    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)], stop_reason=stop_reason)
+    return _install_fake_anthropic_sequence(monkeypatch, [response])
+
+
+def _install_fake_anthropic_sequence(
+    monkeypatch: pytest.MonkeyPatch, responses: list[FakeMessage]
+) -> FakeAnthropicClient:
+    fake_client = FakeAnthropicClient(responses)
 
     class FakeAnthropicModule:
         @staticmethod
@@ -196,6 +211,96 @@ def test_plan_raises_on_inconsistent_decision(monkeypatch: pytest.MonkeyPatch, t
 
     with pytest.raises(PlannerValidationError):
         client.plan("some question", [])
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["reasoning", "agents_needed", "retriever_query", "code_navigation_symbols", "existing_context_sufficient"],
+)
+def test_plan_raises_validation_error_on_missing_field(
+    monkeypatch: pytest.MonkeyPatch, missing_field: str
+) -> None:
+    # Regression test: a live query hit an unguarded crash on a missing
+    # existing_context_sufficient -- reproduced even against the unmodified
+    # original prompt, confirming this is a model-level reliability quirk,
+    # not something caused by any prompt wording. Must raise
+    # PlannerValidationError, not a raw KeyError.
+    incomplete_input = {k: v for k, v in RETRIEVER_ONLY.items() if k != missing_field}
+    _install_fake_anthropic(monkeypatch, incomplete_input)
+    client = AnthropicPlannerClient(api_key="unused")
+
+    with pytest.raises(PlannerValidationError, match=missing_field):
+        client.plan("some question", [])
+
+
+def test_plan_raises_validation_error_on_max_tokens_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_anthropic(monkeypatch, RETRIEVER_ONLY, stop_reason="max_tokens")
+    client = AnthropicPlannerClient(api_key="unused")
+
+    with pytest.raises(PlannerValidationError, match="max_tokens"):
+        client.plan("some question", [])
+
+
+def test_plan_retries_once_after_validation_failure_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    malformed = FakeMessage(
+        content=[
+            FakeToolUseBlock(
+                input={
+                    "reasoning": "partial",
+                    "agents_needed": ["retriever"],
+                    "retriever_query": "q",
+                    "code_navigation_symbols": [],
+                    # existing_context_sufficient missing
+                }
+            )
+        ]
+    )
+    fake_client = _install_fake_anthropic_sequence(
+        monkeypatch, [malformed, FakeMessage(content=[FakeToolUseBlock(input=RETRIEVER_ONLY)])]
+    )
+    client = AnthropicPlannerClient(api_key="unused")
+
+    decision = client.plan("some question", [])
+
+    assert decision == PlannerDecision(
+        reasoning=RETRIEVER_ONLY["reasoning"],
+        agents_needed=RETRIEVER_ONLY["agents_needed"],
+        retriever_query=RETRIEVER_ONLY["retriever_query"],
+        code_navigation_symbols=RETRIEVER_ONLY["code_navigation_symbols"],
+        existing_context_sufficient=RETRIEVER_ONLY["existing_context_sufficient"],
+    )
+    assert len(fake_client.messages.create_kwargs_history) == 2
+
+    retry_messages = fake_client.messages.create_kwargs_history[1]["messages"]
+    assert retry_messages[1]["role"] == "assistant"
+    assert retry_messages[1]["content"] == malformed.content
+    tool_result = retry_messages[2]["content"][0]
+    assert tool_result["type"] == "tool_result"
+    assert tool_result["tool_use_id"] == malformed.content[0].id
+    assert tool_result["is_error"] is True
+
+
+def test_plan_raises_after_retry_also_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    first_malformed = {"reasoning": "r", "agents_needed": [], "retriever_query": None, "code_navigation_symbols": []}
+    second_malformed = {
+        "agents_needed": [],
+        "retriever_query": None,
+        "code_navigation_symbols": [],
+        "existing_context_sufficient": False,
+    }
+    fake_client = _install_fake_anthropic_sequence(
+        monkeypatch,
+        [
+            FakeMessage(content=[FakeToolUseBlock(input=first_malformed)]),
+            FakeMessage(content=[FakeToolUseBlock(input=second_malformed)]),
+        ],
+    )
+    client = AnthropicPlannerClient(api_key="unused")
+
+    with pytest.raises(PlannerValidationError, match=r"missing required field\(s\) \['reasoning'\]"):
+        client.plan("some question", [])
+
+    assert len(fake_client.messages.create_kwargs_history) == 2
 
 
 def test_fake_planner_client_returns_fixed_decision(fake_planner_client) -> None:

@@ -10,6 +10,7 @@ from agent_orchestrator import retriever_agent as retriever_agent_module
 from agent_orchestrator.retriever_agent import (
     AnthropicReformulationClient,
     ReformulationDecision,
+    ReformulationValidationError,
     _passes_confidence_gate,
     gather_retriever_evidence,
 )
@@ -177,11 +178,13 @@ def test_gather_retriever_evidence_treats_empty_first_pass_as_gate_failure(
 class FakeToolUseBlock:
     input: dict[str, Any]
     type: str = "tool_use"
+    id: str = "toolu_fake"
 
 
 @dataclass
 class FakeMessage:
     content: list[FakeToolUseBlock] = field(default_factory=list)
+    stop_reason: str = "tool_use"
 
 
 class FakeMessages:
@@ -199,8 +202,10 @@ class FakeAnthropicClient:
         self.messages = FakeMessages(response)
 
 
-def _install_fake_anthropic(monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any]) -> FakeAnthropicClient:
-    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)])
+def _install_fake_anthropic(
+    monkeypatch: pytest.MonkeyPatch, tool_input: dict[str, Any], stop_reason: str = "tool_use"
+) -> FakeAnthropicClient:
+    response = FakeMessage(content=[FakeToolUseBlock(input=tool_input)], stop_reason=stop_reason)
     fake_client = FakeAnthropicClient(response)
 
     class FakeAnthropicModule:
@@ -276,6 +281,30 @@ def test_reformulate_handles_empty_first_pass_results(monkeypatch: pytest.Monkey
     message = fake_client.messages.create_kwargs["messages"][0]["content"]
     assert "obscure query" in message
     assert "none" in message.lower()
+
+
+@pytest.mark.parametrize("missing_field", ["reasoning", "reformulated_query"])
+def test_reformulate_raises_validation_error_on_missing_field(
+    monkeypatch: pytest.MonkeyPatch, missing_field: str
+) -> None:
+    # Same unguarded-tool_input vulnerability as the planner/critic, guarded
+    # proactively here rather than reactively (hasn't crashed live yet).
+    incomplete_input = {k: v for k, v in REFORMULATION_TOOL_INPUT.items() if k != missing_field}
+    _install_fake_anthropic(monkeypatch, incomplete_input)
+    client = AnthropicReformulationClient(api_key="unused")
+
+    with pytest.raises(ReformulationValidationError, match=missing_field):
+        client.reformulate("send an email", [])
+
+
+def test_reformulate_raises_validation_error_on_max_tokens_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_anthropic(monkeypatch, REFORMULATION_TOOL_INPUT, stop_reason="max_tokens")
+    client = AnthropicReformulationClient(api_key="unused")
+
+    with pytest.raises(ReformulationValidationError, match="max_tokens"):
+        client.reformulate("send an email", [])
 
 
 # --- FakeReformulationClient ----------------------------------------------
