@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A hosted, multi-agent RAG service that answers natural-language questions about a codebase with grounded, multi-hop, cited answers. A Claude-based planner routes each question to a semantic retriever (Voyage embeddings + Qdrant hybrid search), a deterministic code-navigation tool (Postgres symbol/reference lookups), or both, then a critic-synthesizer verifies sufficiency and either answers or refuses.
 
-Read `docs/architecture.md` before making any non-trivial change. It's a decision log (45 numbered decisions) covering *why* each major choice was made and what alternatives were rejected — routing logic, schema design, datastore choice, model selection, etc. Don't reverse or contradict a numbered decision without flagging it; if new work touches one, reference the decision number in commit messages/comments the way existing code does (e.g. `# decisions #9, #11`).
+Read `docs/architecture.md` before making any non-trivial change. It's a decision log (47 numbered decisions) covering *why* each major choice was made and what alternatives were rejected — routing logic, schema design, datastore choice, model selection, etc. Don't reverse or contradict a numbered decision without flagging it; if new work touches one, reference the decision number in commit messages/comments the way existing code does (e.g. `# decisions #9, #11`).
 
 **Current implementation state** (see README.md progress checklist, though it lags this file — trust this file and the code over it): ingestion is fully built end-to-end — job lifecycle, a Postgres-native job queue, the standalone worker that executes clone/parse/embed/index, retrieval indexing, and code-navigation indexing. Of the agentic query pipeline, the **planner** (`agent_orchestrator/planner.py`, a forced-tool-use Claude call, decision #42), **code-navigation-as-agent** (`agent_orchestrator/code_navigation_agent.py`, decisions #43, #44), and **retriever-as-agent** (`agent_orchestrator/retriever_agent.py`, decision #45) are implemented; the critic-synthesizer is not, so `POST /codebases/{id}/query` and `POST /conversations/{id}/messages` still intentionally return `501` rather than fabricate a response — `refused` in the response shape is specifically the critic's sufficiency verdict and no critic exists yet. LangGraph conversation orchestration is also not implemented yet. Don't "fix" these 501s by stubbing a fake answer/refusal.
 
@@ -28,15 +28,18 @@ uv run pytest services/api
 # run a single test
 uv run pytest services/api/tests/test_jobs.py::test_create_and_get_job
 
-# run the API locally
-uv run uvicorn api.main:app --reload --app-dir services/api/src
+# run the API locally (--env-file loads .env into the process before Python
+# starts -- see decision #47 for why this isn't a load_dotenv() call instead)
+uv run --env-file .env uvicorn api.main:app --reload --app-dir services/api/src
 
 # run the ingestion worker locally (polls the jobs table and executes clone/parse/embed/index)
-uv run python -m worker.main
+uv run --env-file .env python -m worker.main
 
 # start local Postgres + Qdrant (required for most tests)
 docker compose up -d
 ```
+
+Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `QDRANT_URL`, `VOYAGE_API_KEY`, `ANTHROPIC_API_KEY` before running the commands above. `.env` is gitignored; `.env.example` should only ever contain blank placeholders -- never fill in real values there.
 
 There is no configured lint/format/type-check tool (no ruff/mypy config in the repo) — don't assume one silently.
 
@@ -44,7 +47,7 @@ There is no configured lint/format/type-check tool (no ruff/mypy config in the r
 
 Most tests need Postgres (`services/api`) or Postgres + Qdrant (`packages/rag_core`) reachable. Both test suites probe reachability in `conftest.py` and **skip** (not fail) if the relevant service isn't up — if you see a batch of skips, run `docker compose up -d` first rather than assuming the tests are broken. Fake Voyage embedding/rerank clients (deterministic hash-based embeddings, token-overlap reranking) are used in tests instead of real API calls — see `FakeEmbeddingClient`/`FakeRerankClient` in the two `conftest.py` files — so tests never require `VOYAGE_API_KEY`.
 
-Env vars: `DATABASE_URL`, `QDRANT_URL`, `VOYAGE_API_KEY`. Tests use `TEST_DATABASE_URL`/`TEST_QDRANT_URL` overrides if set, else the same defaults as `docker-compose.yml` (`postgresql://rag:rag@localhost:5432/rag`, `http://localhost:6333`). `RERANK_CONFIDENCE_THRESHOLD` (default `0.5`) tunes the retriever-as-agent's confidence gate (decision #45).
+Env vars (see `.env.example`): `DATABASE_URL`, `QDRANT_URL`, `VOYAGE_API_KEY`, `ANTHROPIC_API_KEY` (the last is required once any agent_orchestrator code runs -- planner and retriever-as-agent both call Claude). Tests use `TEST_DATABASE_URL`/`TEST_QDRANT_URL` overrides if set, else the same defaults as `docker-compose.yml` (`postgresql://rag:rag@localhost:5432/rag`, `http://localhost:6333`), and never need `VOYAGE_API_KEY`/`ANTHROPIC_API_KEY` -- both are mocked at the client boundary in tests (`FakeEmbeddingClient`/`FakeRerankClient`, and the mocked `anthropic.Anthropic` in `test_planner.py`/`test_retriever_agent.py`). `RERANK_CONFIDENCE_THRESHOLD` (default `0.5`) tunes the retriever-as-agent's confidence gate (decision #45); `EMBED_BATCH_SIZE` (default `64`) tunes ingestion's Voyage `embed_documents` batch size (decision #46). Loading: `uv run --env-file .env <command>`, not `python-dotenv` in application code (decision #47).
 
 ## Architecture
 

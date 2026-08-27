@@ -12,6 +12,7 @@ to resolve depending on file processing order.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 from pathlib import Path
@@ -29,7 +30,11 @@ from rag_core.retrieval.qdrant_index import collection_name_for_codebase, ensure
 
 logger = logging.getLogger(__name__)
 
-EMBED_BATCH_SIZE = 64
+# Decision #46: env-configurable, not a hardcoded constant -- an operational
+# cost/throughput dial that plausibly differs per deployer depending on
+# their Voyage rate-limit tier, same reasoning as MAX_CONCURRENT_JOBS
+# (decision #38) and RERANK_CONFIDENCE_THRESHOLD (decision #45).
+EMBED_BATCH_SIZE = int(os.environ.get("EMBED_BATCH_SIZE", "64"))
 EMBED_MAX_ATTEMPTS = 3
 EMBED_RETRY_BACKOFF_SECONDS = 2.0
 
