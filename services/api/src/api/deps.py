@@ -12,6 +12,9 @@ from collections.abc import Iterator
 import psycopg
 from qdrant_client import QdrantClient
 
+from agent_orchestrator.critic import AnthropicCriticClient, CriticClient
+from agent_orchestrator.planner import AnthropicPlannerClient, PlannerClient
+from agent_orchestrator.retriever_agent import AnthropicReformulationClient, ReformulationClient
 from rag_core.retrieval.embeddings import EmbeddingClient, VoyageEmbeddingClient
 from rag_core.retrieval.reranker import RerankClient, VoyageRerankClient
 
@@ -21,6 +24,9 @@ QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 _qdrant_client: QdrantClient | None = None
 _embedding_client: EmbeddingClient | None = None
 _rerank_client: RerankClient | None = None
+_planner_client: PlannerClient | None = None
+_reformulation_client: ReformulationClient | None = None
+_critic_client: CriticClient | None = None
 
 
 def get_pg_conn() -> Iterator[psycopg.Connection]:
@@ -50,3 +56,24 @@ def get_rerank_client() -> RerankClient:
     if _rerank_client is None:
         _rerank_client = VoyageRerankClient()
     return _rerank_client
+
+
+def get_planner_client() -> PlannerClient:
+    global _planner_client
+    if _planner_client is None:
+        _planner_client = AnthropicPlannerClient()
+    return _planner_client
+
+
+def get_reformulation_client() -> ReformulationClient:
+    global _reformulation_client
+    if _reformulation_client is None:
+        _reformulation_client = AnthropicReformulationClient()
+    return _reformulation_client
+
+
+def get_critic_client() -> CriticClient:
+    global _critic_client
+    if _critic_client is None:
+        _critic_client = AnthropicCriticClient()
+    return _critic_client

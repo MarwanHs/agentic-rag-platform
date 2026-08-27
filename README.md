@@ -32,11 +32,11 @@ Checkboxes track implementation, not design — several unchecked items below al
 - [x] Core retrieval — embeddings + hybrid search (Voyage) — shared tree-sitter parsing layer, `voyage-code-3` embeddings, Qdrant hybrid (dense + native BM25) search with RRF fusion and reranking
 - [x] Code-navigation tooling — symbol search, call-graph lookups — Postgres symbols/references schema, `find_definition`/`find_references` lookups
 - [x] Async job queue for ingestion pipelines — Postgres-native queue (`SELECT ... FOR UPDATE SKIP LOCKED`, decision #37), standalone worker executing the full clone → parse → embed/index → code-navigation-index pipeline; verified end-to-end against this repo's own source
-- [ ] Agentic retrieval loop — planner, iterative retrieval, critic-synthesizer — *planner (forced-tool-use routing, decision #42), retriever-as-agent (confidence-gated hybrid search with one reformulation retry, decision #45), code-navigation-as-agent (decision #44), and critic-synthesizer (forced-tool-use Sonnet call over a closed, numbered evidence list, decision #49) are all implemented and independently tested; only the orchestrating function that wires them together is missing, so `POST /codebases/{id}/query` still returns `501 Not Implemented` rather than a fabricated `refused: true`*
+- [x] Agentic retrieval loop — planner, iterative retrieval, critic-synthesizer — *planner (forced-tool-use routing, decision #42), retriever-as-agent (confidence-gated hybrid search with one reformulation retry, decision #45), code-navigation-as-agent (decision #44), critic-synthesizer (forced-tool-use Sonnet call over a closed, numbered evidence list, decision #49), and the orchestrating function wiring them together (decision #50) are all implemented; `POST /codebases/{id}/query` returns real answers. This covers single-shot queries only -- multi-turn conversation orchestration is the separate item below.*
 - [ ] Multi-turn conversation support (LangGraph + Postgres checkpointing) — *design settled (decision #29), not yet implemented — new `POST /codebases/{id}/conversations` and `POST /conversations/{id}/messages` endpoints, planner reasons over prior turns*
 - [ ] Evaluation harness — golden dataset, LLM-as-judge grading — *approach decided, details not yet designed*
-- [x] FastAPI service — endpoints, async ingestion, blocking query endpoint — *endpoints live, query endpoint stubbed pending orchestration: `POST /jobs`, `GET /jobs/{id}`, and `GET /codebases` are fully functional, but `POST /codebases/{id}/query` returns `501 Not Implemented` until the orchestrating function exists*
-- [ ] Multi-agent orchestration layer — *planner, both evidence-gathering agents, and the critic-synthesizer are all implemented and independently tested; the function that combines their evidence, calls the critic, and maps its output onto the API response shape (citation indices → `Citation` objects, `agents_needed` → `sources_used`) is the remaining piece*
+- [x] FastAPI service — endpoints, async ingestion, blocking query endpoint — *`POST /jobs`, `GET /jobs/{id}`, `GET /codebases`, and `POST /codebases/{id}/query` are all fully functional; `POST /conversations/{id}/messages` still returns `501 Not Implemented` pending LangGraph conversation orchestration (see below)*
+- [x] Multi-agent orchestration layer — *the orchestrating function (`agent_orchestrator/query.py::answer_query`, decision #50) combines the planner's routing decision, both evidence-gathering agents' output, and the critic's verdict into a single query response*
 - [ ] Caching layer (Redis) — *deferred to a future version, see architecture.md*
 - [ ] Observability — structured logging, tracing, metrics — *basic structured logging exists today (per-batch ingestion progress, Voyage token usage, planner/retriever routing decisions); the Prometheus/Grafana + OpenTelemetry/Tempo stack from decision #27 isn't wired up yet*
 - [ ] Load testing & published benchmark numbers
@@ -64,11 +64,15 @@ uv run --env-file .env uvicorn api.main:app --reload --app-dir services/api/src
 uv run --env-file .env python -m worker.main
 ```
 
-Submit a codebase for ingestion and poll until it's ready:
+Submit a codebase for ingestion and poll until it's ready, then ask a question:
 
 ```bash
 curl -X POST localhost:8000/jobs -d '{"url": "https://github.com/<owner>/<repo>"}'
 curl localhost:8000/jobs/<job_id>   # poll until status is "ready"
+
+curl -X POST localhost:8000/codebases/<job_id>/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "how does the ingestion job queue claim work?"}'
 ```
 
-Querying an ingested codebase (`POST /codebases/{id}/query`) isn't live yet — the agentic query pipeline is still in progress; see Progress above for exactly what's built and what's left.
+The response is either an answer with cited evidence or an explicit refusal -- see the `QueryResponse` shape in `services/api/src/api/models.py`. Multi-turn conversations (`POST /conversations/{id}/messages`) aren't live yet; see Progress above.
