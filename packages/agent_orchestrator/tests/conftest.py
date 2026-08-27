@@ -10,6 +10,7 @@ import psycopg
 import pytest
 from qdrant_client import QdrantClient
 
+from agent_orchestrator.critic import CriticDecision
 from agent_orchestrator.planner import PlannerDecision
 from agent_orchestrator.retriever_agent import ReformulationDecision
 from rag_core.retrieval.qdrant_index import SearchResult
@@ -150,3 +151,35 @@ class FakeReformulationClient:
 @pytest.fixture()
 def fake_reformulation_client() -> FakeReformulationClient:
     return FakeReformulationClient()
+
+
+class FakeCriticClient:
+    """Deterministic stand-in for AnthropicCriticClient.
+
+    Configure with either a fixed CriticDecision (returned for every call)
+    or a callable(question, evidence) -> CriticDecision for per-call
+    control.
+    """
+
+    def __init__(
+        self,
+        decision: CriticDecision | Callable[[str, list[EvidenceItem]], CriticDecision] | None = None,
+    ) -> None:
+        self._decision = decision or CriticDecision(
+            answer=None,
+            refused=True,
+            reason="default fake refusal",
+            cited_evidence_indices=[],
+        )
+        self.calls: list[tuple[str, list[EvidenceItem]]] = []
+
+    def synthesize(self, question: str, evidence: list[EvidenceItem]) -> CriticDecision:
+        self.calls.append((question, evidence))
+        if callable(self._decision):
+            return self._decision(question, evidence)
+        return self._decision
+
+
+@pytest.fixture()
+def fake_critic_client() -> FakeCriticClient:
+    return FakeCriticClient()
